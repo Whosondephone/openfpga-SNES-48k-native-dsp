@@ -1,3 +1,8 @@
+Asked Perplexity.ai to rewrite the Audio chip to render and mix the sound at 48kHz...
+
+-Whosondephone
+
+
 # SNES for Analogue Pocket
 
 Ported from the original core developed by [srg320](https://github.com/srg320) ([Patreon](https://www.patreon.com/srg320)). Latest upstream available at https://github.com/MiSTer-devel/SNES_MiSTer.
