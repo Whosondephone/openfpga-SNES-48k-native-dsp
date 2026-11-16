@@ -147,7 +147,9 @@ module MAIN_SNES (
     output wire [15:0] audio_l,
     output wire [15:0] audio_r,
     // Single clk_sys cycle pulse when the S-DSP produces a new (~32kHz) sample
-    output wire        audio_rdy
+    output wire        audio_rdy,
+    // Read-only S-DSP voice state taps for the native 48kHz renderer (dsp_hq48)
+    output wire [127:0] audio_hq_tap
 );
   parameter USE_CX4 = 1'b0;
   parameter USE_SDD1 = 1'b0;
@@ -449,6 +451,7 @@ module MAIN_SNES (
       .AUDIO_L(audio_l),
       .AUDIO_R(audio_r),
       .AUDIO_RDY(audio_rdy),
+      .AUDIO_HQ_TAP(audio_hq_tap),
 
       // New upstream ports since fork — tied to safe defaults
       .RAM_SIZE(4'b0),

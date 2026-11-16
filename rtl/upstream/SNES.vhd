@@ -115,7 +115,8 @@ entity SNES is
 
 		AUDIO_L		: out std_logic_vector(15 downto 0);
 		AUDIO_R		: out std_logic_vector(15 downto 0);
-		AUDIO_RDY	: out std_logic
+		AUDIO_RDY	: out std_logic;
+		AUDIO_HQ_TAP	: out std_logic_vector(127 downto 0)
 	);
 end SNES;
 
@@ -446,7 +447,8 @@ begin
 
 		AUDIO_L		=> AUDIO_L,
 		AUDIO_R		=> AUDIO_R,
-		SND_RDY		=> AUDIO_RDY
+		SND_RDY		=> AUDIO_RDY,
+		HQ_TAP		=> AUDIO_HQ_TAP
 	);
 
 	SS_SPC_DO <= SS_SMP_DO when SS_SMP_SEL = '1' else SS_DSP_DO;

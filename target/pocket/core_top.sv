@@ -620,6 +620,7 @@ module core_top (
   wire [15:0] audio_l;
   wire [15:0] audio_r;
   wire audio_rdy;
+  wire [127:0] audio_hq_tap;
 
   wire [3:0] sram_size;
 
@@ -913,7 +914,8 @@ module core_top (
       // Audio
       .audio_l(audio_l),
       .audio_r(audio_r),
-      .audio_rdy(audio_rdy)
+      .audio_rdy(audio_rdy),
+      .audio_hq_tap(audio_hq_tap)
   );
 
   // Video
@@ -983,22 +985,24 @@ module core_top (
 
   // Audio
   //
-  // The S-DSP runs at ~32kHz. Resample it to the native 48kHz I2S rate,
-  // locked to the DAC's frame clock, so every DSP sample is used exactly once
-  // (pitch and tempo unchanged) and no samples are dropped or doubled.
+  // The S-DSP runs at ~32kHz. Instead of resampling its finished mix, the
+  // dsp_hq48 renderer re-evaluates all 8 voices and the final mix directly at
+  // every 48kHz I2S frame instant, using the DSP's own voice state, Gaussian
+  // table and mixing math. Each voice advances through its sample data at
+  // exactly the DSP's pitch rate, so pitch and tempo are unchanged. Only the
+  // echo return (which lives in game-visible ARAM at 32kHz) is resampled.
 
   wire audio_sample_req;
   wire audio_sample_valid;
   wire [15:0] audio_l_48k;
   wire [15:0] audio_r_48k;
 
-  audio_resampler audio_resampler (
+  dsp_hq48 dsp_hq48 (
       .clk  (clk_sys_21_48),
       .reset(~pll_core_locked),
 
-      .in_valid(audio_rdy),
-      .in_l    (audio_l),
-      .in_r    (audio_r),
+      .hq_tap (audio_hq_tap),
+      .snd_rdy(audio_rdy),
 
       .out_req  (audio_sample_req),
       .out_valid(audio_sample_valid),

@@ -152,7 +152,8 @@ module main #(
 
 	output     [15:0] AUDIO_L,
 	output     [15:0] AUDIO_R,
-	output            AUDIO_RDY
+	output            AUDIO_RDY,
+	output    [127:0] AUDIO_HQ_TAP
 );
 
 parameter USE_DLH = 1'b1;
@@ -286,7 +287,8 @@ SNES SNES
 
 	.audio_l(AUDIO_L),
 	.audio_r(AUDIO_R),
-	.audio_rdy(AUDIO_RDY)
+	.audio_rdy(AUDIO_RDY),
+	.audio_hq_tap(AUDIO_HQ_TAP)
 );
 
 

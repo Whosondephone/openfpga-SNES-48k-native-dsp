@@ -46,7 +46,11 @@ entity DSP is
 
 		AUDIO_L		: out std_logic_vector(15 downto 0);
 		AUDIO_R		: out std_logic_vector(15 downto 0);
-		SND_RDY		: out std_logic
+		SND_RDY		: out std_logic;
+
+		-- Read-only taps of internal voice state for the native 48kHz renderer
+		-- (target/pocket/dsp_hq48.sv). They do not affect the DSP in any way.
+		HQ_TAP		: out std_logic_vector(127 downto 0)
 	);
 end DSP;
 
@@ -232,6 +236,20 @@ architecture rtl of DSP is
 
 	signal SS_REGS_WR		: std_logic;
 	signal SS_REGS_DO		: std_logic_vector(7 downto 0);
+
+	-- Native 48kHz renderer taps
+	signal HQ_POS_STB		: std_logic := '0';
+	signal HQ_POS_V		: std_logic_vector(2 downto 0) := (others => '0');
+	signal HQ_POS			: std_logic_vector(14 downto 0) := (others => '0');
+	signal HQ_GS_STB		: std_logic := '0';
+	signal HQ_GS_V			: std_logic_vector(2 downto 0) := (others => '0');
+	signal HQ_GS_ENV		: std_logic_vector(10 downto 0) := (others => '0');
+	signal HQ_GS_NON		: std_logic := '0';
+	signal HQ_GS_NOISE	: std_logic_vector(14 downto 0) := (others => '0');
+	signal HQ_REG_STB		: std_logic := '0';
+	signal HQ_REG_TYPE	: std_logic_vector(2 downto 0) := (others => '0');
+	signal HQ_REG_V		: std_logic_vector(2 downto 0) := (others => '0');
+	signal HQ_REG_DATA	: std_logic_vector(23 downto 0) := (others => '0');
 
 begin
 	
@@ -751,6 +769,9 @@ begin
 			GS_STATE <= GS_IDLE;
 		elsif rising_edge(CLK) then
 			GTBL_DO <= GTBL(to_integer(GTBL_ADDR));
+			HQ_POS_STB <= '0';
+			HQ_GS_STB <= '0';
+			HQ_REG_STB <= '0';
 			if REG_SET = '1' then 
 				--6C FLG
 				RST_FLG <= REG6C(7);
@@ -976,6 +997,9 @@ begin
 						TENVX(INS.V) <= "0" & std_logic_vector(ENV(INS.V)(10 downto 4));
 						
 					when IS_ENV2 =>
+						HQ_POS_STB <= '1';
+						HQ_POS_V <= std_logic_vector(to_unsigned(INS.V, 3));
+						HQ_POS <= std_logic_vector(INTERP_POS(INS.V)(14 downto 0));
 						BB_POS := "0" & unsigned(INTERP_POS(INS.V)(14 downto 12));
 						BB_POS0 := '0' & BB_POS + BRR_BUF_ADDR(INS.V) + 1;
 						if BB_POS0 > 11 then BB_POS0 := BB_POS0 - 12; end if;
@@ -1035,9 +1059,20 @@ begin
 							INTERP_POS(VS.V) <= NEW_INTERP_POS;
 						else
 							INTERP_POS(VS.V) <= x"7FFF";
+							NEW_INTERP_POS := x"7FFF";
 						end if;
+
+						-- HQ tap: voice volume and the exact position advance applied this sample
+						HQ_REG_STB <= '1';
+						HQ_REG_TYPE <= "000";
+						HQ_REG_V <= std_logic_vector(to_unsigned(VS.V, 3));
+						HQ_REG_DATA <= std_logic_vector(NEW_INTERP_POS - ("00"&INTERP_POS(VS.V)(13 downto 0))) & REGS_DO;
 						
 					when VS_VOLR =>
+						HQ_REG_STB <= '1';
+						HQ_REG_TYPE <= "001";
+						HQ_REG_V <= std_logic_vector(to_unsigned(VS.V, 3));
+						HQ_REG_DATA <= x"0000" & REGS_DO;
 						VOL_TEMP := resize(shift_right(TOUT * signed(REGS_DO), 7), VOL_TEMP'length);
 						MOUT(1) <= CLAMP16(resize(MOUT(1), VOL_TEMP'length) + VOL_TEMP);
 						if TEON(VS.V) = '1' then
@@ -1050,12 +1085,24 @@ begin
 						end if;
 					
 					when VS_MVOLL =>
+						HQ_REG_STB <= '1';
+						HQ_REG_TYPE <= "010";
+						HQ_REG_V <= "000";
+						HQ_REG_DATA <= x"0000" & REGS_DO;
 						MOUT(0) <= resize(shift_right(MOUT(0) * signed(REGS_DO), 7),MOUT(0)'length);
 					
 					when VS_MVOLR =>
+						HQ_REG_STB <= '1';
+						HQ_REG_TYPE <= "011";
+						HQ_REG_V <= "000";
+						HQ_REG_DATA <= x"0000" & REGS_DO;
 						MOUT(1) <= resize(shift_right(MOUT(1) * signed(REGS_DO), 7),MOUT(1)'length);
 					
 					when VS_EVOLL =>
+						HQ_REG_STB <= '1';
+						HQ_REG_TYPE <= "100";
+						HQ_REG_V <= "000";
+						HQ_REG_DATA <= "000000" & MUTE_FLG & std_logic_vector(resize(shift_right(ECHO_FIR(0) * signed(REGS_DO), 7), 17));
 						if MUTE_FLG = '1' then
 							OUTL <= (others => '0');
 						else
@@ -1064,6 +1111,10 @@ begin
 						MOUT(0) <= (others => '0');
 					
 					when VS_EVOLR =>
+						HQ_REG_STB <= '1';
+						HQ_REG_TYPE <= "101";
+						HQ_REG_V <= "000";
+						HQ_REG_DATA <= "000000" & MUTE_FLG & std_logic_vector(resize(shift_right(ECHO_FIR(1) * signed(REGS_DO), 7), 17));
 						if MUTE_FLG = '1' then
 							OUTR <= (others => '0');
 						else
@@ -1175,6 +1226,11 @@ begin
 					GS_STATE <= GS_BRR3;
 
 				when GS_BRR3 =>
+					HQ_GS_STB <= '1';
+					HQ_GS_V <= std_logic_vector(G_VOICE);
+					HQ_GS_ENV <= std_logic_vector(LAST_ENV(10 downto 0));
+					HQ_GS_NON <= TNON(to_integer(G_VOICE));
+					HQ_GS_NOISE <= std_logic_vector(NOISE);
 					SUM3   := resize( shift_right(GTBL_DO * BRR_BUF_GAUSS_DO, 11), 17 );
 					GSUM := CLAMP16( resize(SUM012(15)&SUM012(15 downto 0) + SUM3, 17) );
 
@@ -1333,6 +1389,23 @@ begin
 		end if;
 	end process;
 	
+	HQ_TAP(0) <= BRR_BUF_WE;
+	HQ_TAP(3 downto 1) <= std_logic_vector(BD_VOICE);
+	HQ_TAP(19 downto 4) <= std_logic_vector(BRR_BUF_DI);
+	HQ_TAP(20) <= HQ_POS_STB;
+	HQ_TAP(23 downto 21) <= HQ_POS_V;
+	HQ_TAP(38 downto 24) <= HQ_POS;
+	HQ_TAP(39) <= HQ_GS_STB;
+	HQ_TAP(42 downto 40) <= HQ_GS_V;
+	HQ_TAP(53 downto 43) <= HQ_GS_ENV;
+	HQ_TAP(54) <= HQ_GS_NON;
+	HQ_TAP(69 downto 55) <= HQ_GS_NOISE;
+	HQ_TAP(70) <= HQ_REG_STB;
+	HQ_TAP(73 downto 71) <= HQ_REG_TYPE;
+	HQ_TAP(76 downto 74) <= HQ_REG_V;
+	HQ_TAP(100 downto 77) <= HQ_REG_DATA;
+	HQ_TAP(127 downto 101) <= (others => '0');
+
 	LRCK <= not STEP_CNT(4);
 	BCK <= SUBSTEP_CNT(1);
 	SDAT <= OUTPUT(31);
